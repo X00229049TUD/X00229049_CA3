@@ -16,7 +16,7 @@ variables:
 
 stages:
 - stage: BuildAndTest
-  displayName: 'Build, lint, test'
+  displayName: 'Build, lint, test, publish artefact'
   jobs:
   - job: Build
     displayName: 'Run lint and tests'
@@ -46,6 +46,7 @@ stages:
           --cov-report=html:htmlcov \
           --cov-fail-under=80
       displayName: 'Test + coverage (fails if <80%)'
+      condition: succeededOrFailed()
 
     - task: PublishTestResults@2
       displayName: 'Publish test results (JUnit)'
@@ -63,3 +64,66 @@ stages:
         summaryFileLocation: '$(System.DefaultWorkingDirectory)/coverage.xml'
         reportDirectory: '$(System.DefaultWorkingDirectory)/htmlcov'
         failIfCoverageEmpty: true
+
+    # package app as artefact
+    - task: CopyFiles@2
+      displayName: 'Copy files to artefact staging'
+      inputs:
+        contents: |
+          calculator/**
+          templates/**
+          app.py
+          main.py
+          requirements.txt
+        targetFolder: '$(Build.ArtifactStagingDirectory)'
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish build artefact'
+      inputs:
+        pathToPublish: '$(Build.ArtifactStagingDirectory)'
+        artifactName: 'drop'
+        publishLocation: 'Container'
+
+# deploy to test
+- stage: Deploy_Test
+  displayName: 'Deploy to Test environment'
+  dependsOn: BuildAndTest
+  condition: succeeded()   # only if build stage succeeded
+  jobs:
+  - deployment: DeployToTest
+    displayName: 'Deploy calculator to Test (simulated)'
+    environment: 'Test'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: drop
+
+          - task: UsePythonVersion@0
+            displayName: 'Use Python $(pythonVersion)'
+            inputs:
+              versionSpec: '$(pythonVersion)'
+              addToPath: true
+
+          - script: |
+              python -m pip install --upgrade pip
+              python -m pip install -r $(Pipeline.Workspace)/drop/requirements.txt
+            displayName: 'Install dependencies in deployment job'
+
+          - script: |
+              echo "Starting Flask app in background..."
+              cd $(Pipeline.Workspace)/drop
+              python app.py &
+              APP_PID=$!
+              echo "App PID: $APP_PID"
+
+              # Give the app a moment to start
+              sleep 5
+
+              echo "Hitting smoke-test endpoint..."
+              curl -f "http://127.0.0.1:8000/api/calculate?op=add&a=1&b=2"
+
+              echo "Stopping app..."
+              kill $APP_PID || true
+            displayName: 'Smoke test deployment on Test'
