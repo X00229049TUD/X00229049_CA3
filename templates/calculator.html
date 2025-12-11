@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Calculator</title>
+    <style>
+      body { font-family: sans-serif; max-width: 480px; margin: 2rem auto; }
+      form { display: flex; flex-direction: column; gap: 0.5rem; }
+      input, select, button { padding: 0.4rem; font-size: 1rem; }
+      .error { color: #b00020; margin-top: 0.5rem; }
+      .result { color: #006400; margin-top: 0.5rem; font-weight: bold; }
+    </style>
+  </head>
+  <body>
+    <h1>Python Calculator</h1>
+
+    <form action="/calculate" method="post">
+      <label>
+        First number:
+        <input type="text" name="a" value="{{ a_value }}">
+      </label>
+
+      <label>
+        Second number:
+        <input type="text" name="b" value="{{ b_value }}">
+      </label>
+
+      <label>
+        Operation:
+        <select name="operation">
+          <option value="add" {% if selected_op == 'add' %}selected{% endif %}>Add (a + b)</option>
+          <option value="sub" {% if selected_op == 'sub' %}selected{% endif %}>Subtract (a - b)</option>
+          <option value="mul" {% if selected_op == 'mul' %}selected{% endif %}>Multiply (a * b)</option>
+          <option value="div" {% if selected_op == 'div' %}selected{% endif %}>Divide (a / b)</option>
+          <option value="pow" {% if selected_op == 'pow' %}selected{% endif %}>Power (a ** b)</option>
+          <option value="max" {% if selected_op == 'max' %}selected{% endif %}>Maximum</option>
+          <option value="min" {% if selected_op == 'min' %}selected{% endif %}>Minimum</option>
+        </select>
+      </label>
+
+      <button type="submit">Calculate</button>
+    </form>
+
+    {% if error %}
+      <div class="error">Error: {{ error }}</div>
+    {% endif %}
+
+    {% if result is not none and not error %}
+      <div class="result">Result: {{ result }}</div>
+    {% endif %}
+
+    <p>
+      API example:
+      <code>/api/calculate?op=add&amp;a=1&amp;b=2</code>
+    </p>
+  </body>
+</html>
