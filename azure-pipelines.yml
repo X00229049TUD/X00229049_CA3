@@ -127,3 +127,61 @@ stages:
               echo "Stopping app..."
               kill $APP_PID || true
             displayName: 'Smoke test deployment on Test'
+
+- stage: PerformanceTests
+  displayName: 'Performance tests (JMeter)'
+  dependsOn: Deploy_Test
+  condition: succeeded()
+  jobs:
+  - job: JMeter
+    displayName: 'Run JMeter load tests'
+    steps:
+    - task: UsePythonVersion@0
+      displayName: 'Use Python $(pythonVersion)'
+      inputs:
+        versionSpec: '$(pythonVersion)'
+        addToPath: true
+
+    - script: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt
+      displayName: 'Install app dependencies'
+
+    - script: |
+        echo "Downloading JMeter..."
+        JMETER_VERSION=5.6.3
+        wget -q https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz -O apache-jmeter.tgz
+        tar -xzf apache-jmeter.tgz
+      displayName: 'Download and extract JMeter'
+
+    - script: |
+        echo "Starting Flask app in background..."
+        python app.py &
+        APP_PID=$!
+        echo "App PID: $APP_PID"
+        sleep 5
+
+        echo "Running JMeter test plan..."
+        ./apache-jmeter-*/bin/jmeter \
+          -n \
+          -t performance-tests/calculator_load_test.jmx \
+          -l jmeter-results.jtl \
+          -e -o jmeter-report
+
+        echo "Stopping app..."
+        kill $APP_PID || true
+      displayName: 'Run JMeter against local app'
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish JMeter HTML report'
+      inputs:
+        pathToPublish: '$(System.DefaultWorkingDirectory)/jmeter-report'
+        artifactName: 'jmeter-report'
+        publishLocation: 'Container'
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish JMeter raw results'
+      inputs:
+        pathToPublish: '$(System.DefaultWorkingDirectory)/jmeter-results.jtl'
+        artifactName: 'jmeter-results'
+        publishLocation: 'Container'
