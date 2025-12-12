@@ -297,8 +297,8 @@ stages:
   condition: succeeded()
   jobs:
     - deployment: DeployToProd
-      displayName: "Deploy calculator to Prod (simulated + verification)"
-      environment: "Prod"
+      displayName: "Deploy calculator to Production (simulated + verification)"
+      environment: "Production"
       strategy:
         runOnce:
           deploy:
@@ -326,7 +326,7 @@ stages:
                   APP_PID=$!
                   sleep 5
 
-                  echo "Prod verification..."
+                  echo "Production verification..."
                   curl -f "http://127.0.0.1:8000/api/calculate?op=add&a=2&b=3"
 
                   echo "Stopping app..."
