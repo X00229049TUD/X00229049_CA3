@@ -214,7 +214,7 @@ stages:
 
         echo "Running Behave tests..."
         cd uat
-        behave -f junit -o reports
+        behave -f junit -o reports/uat-results.xml
 
         echo "Stopping app..."
         kill $APP_PID || true
