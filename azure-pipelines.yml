@@ -9,312 +9,326 @@ pr:
       - main
 
 pool:
-  vmImage: 'ubuntu-latest'
+  vmImage: ubuntu-latest
 
 variables:
-  pythonVersion: '3.11'
+  pythonVersion: "3.11"
 
 stages:
 - stage: BuildAndTest
-  displayName: 'Build, lint, test, publish artefact'
+  displayName: "Build, lint, test, coverage, publish artifact"
   jobs:
-  - job: Build
-    displayName: 'Run lint and tests'
-    steps:
-    - task: UsePythonVersion@0
-      displayName: 'Use Python $(pythonVersion)'
-      inputs:
-        versionSpec: '$(pythonVersion)'
-        addToPath: true
+    - job: Build
+      displayName: "Build & quality gates"
+      steps:
+        - task: UsePythonVersion@0
+          displayName: "Use Python $(pythonVersion)"
+          inputs:
+            versionSpec: "$(pythonVersion)"
+            addToPath: true
 
-    - script: |
-        python -m pip install --upgrade pip
-        python -m pip install -r requirements.txt
-      displayName: 'Install dependencies'
+        - script: |
+            python -m pip install --upgrade pip
+            python -m pip install -r requirements.txt
+          displayName: "Install dependencies"
 
-    - script: |
-        python -m pylint --disable=R0801 calculator main.py app.py
-      displayName: 'Run pylint'
+        - script: |
+            python -m pylint --disable=R0801 calculator main.py app.py
+          displayName: "Run pylint"
 
-    - script: |
-        echo "Running tests with pytest and coverage"
-        python -m pytest -q \
-          --junitxml=junit.xml \
-          --cov=calculator \
-          --cov-branch \
-          --cov-report=xml:coverage.xml \
-          --cov-report=html:htmlcov \
-          --cov-fail-under=80
-      displayName: 'Test + coverage (fails if <80%)'
-      condition: succeededOrFailed()
+        - script: |
+            echo "Running tests with pytest and coverage"
+            python -m pytest -q \
+              --junitxml=junit.xml \
+              --cov=calculator \
+              --cov-branch \
+              --cov-report=xml:coverage.xml \
+              --cov-report=html:htmlcov \
+              --cov-fail-under=80
+          displayName: "Test + coverage (fails if <80%)"
 
-    - task: PublishTestResults@2
-      displayName: 'Publish test results (JUnit)'
-      condition: succeededOrFailed()
-      inputs:
-        testResultsFormat: 'JUnit'
-        testResultsFiles: 'junit.xml'
-        failTaskOnFailedTests: true
+        - task: PublishTestResults@2
+          displayName: "Publish test results (JUnit)"
+          condition: succeededOrFailed()
+          inputs:
+            testResultsFormat: "JUnit"
+            testResultsFiles: "junit.xml"
+            failTaskOnFailedTests: true
 
-    - task: PublishCodeCoverageResults@2
-      displayName: 'Publish code coverage (Cobertura XML)'
-      condition: succeededOrFailed()
-      inputs:
-        codeCoverageTool: 'Cobertura'
-        summaryFileLocation: '$(System.DefaultWorkingDirectory)/coverage.xml'
-        reportDirectory: '$(System.DefaultWorkingDirectory)/htmlcov'
-        failIfCoverageEmpty: true
+        - task: PublishCodeCoverageResults@2
+          displayName: "Publish code coverage (Cobertura XML)"
+          condition: succeededOrFailed()
+          inputs:
+            codeCoverageTool: "Cobertura"
+            summaryFileLocation: "$(System.DefaultWorkingDirectory)/coverage.xml"
+            reportDirectory: "$(System.DefaultWorkingDirectory)/htmlcov"
+            failIfCoverageEmpty: true
 
-    - task: CopyFiles@2
-      displayName: 'Copy files to artefact staging'
-      inputs:
-        contents: |
-          calculator/**
-          templates/**
-          performance-tests/**
-          uat/**
-          app.py
-          main.py
-          requirements.txt
-        targetFolder: '$(Build.ArtifactStagingDirectory)'
+        - task: CopyFiles@2
+          displayName: "Copy files to artifact staging"
+          inputs:
+            contents: |
+              calculator/**
+              templates/**
+              performance-tests/**
+              uat/**
+              app.py
+              main.py
+              requirements.txt
+            targetFolder: "$(Build.ArtifactStagingDirectory)"
 
-    - task: PublishBuildArtifacts@1
-      displayName: 'Publish build artefact'
-      inputs:
-        pathToPublish: '$(Build.ArtifactStagingDirectory)'
-        artifactName: 'drop'
-        publishLocation: 'Container'
+        - task: PublishBuildArtifacts@1
+          displayName: "Publish build artifact (drop)"
+          inputs:
+            pathToPublish: "$(Build.ArtifactStagingDirectory)"
+            artifactName: "drop"
+            publishLocation: "Container"
 
 
-- stage: SecurityTests
-  displayName: 'Security testing'
+- stage: SecretScanning
+  displayName: "SEC - Secret scanning"
   dependsOn: BuildAndTest
   condition: succeeded()
   jobs:
-  - job: Security
-    displayName: 'Run security scans'
-    steps:
-    - task: UsePythonVersion@0
-      displayName: 'Use Python $(pythonVersion)'
-      inputs:
-        versionSpec: '$(pythonVersion)'
-        addToPath: true
+    - job: Gitleaks
+      displayName: "Gitleaks scan"
+      steps:
+        - script: |
+            curl -sSL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks_$(uname -s)_x64.tar.gz -o gitleaks.tar.gz
+            tar -xzf gitleaks.tar.gz
+            sudo mv gitleaks /usr/local/bin/gitleaks
+            gitleaks version
+          displayName: "Install gitleaks"
 
-    - script: |
-        python -m pip install --upgrade pip
-        python -m pip install pip-audit
-      displayName: 'Install security tools'
+        - script: |
+            # Scan working tree; fail on findings.
+            gitleaks detect --source . --no-git --verbose
+          displayName: "Run gitleaks (working tree)"
 
-    - script: |
-        echo "Running dependency vulnerability scan (pip-audit)..."
-        pip-audit
-      displayName: 'Dependency vulnerability scan (pip-audit)'
 
-    - script: |
-        echo "Running secret scan with Gitleaks..."
-        docker run --rm \
-          -v "$(System.DefaultWorkingDirectory):/repo" \
-          zricethezav/gitleaks:latest detect \
-          --source=/repo \
-          --no-git \
-          --verbose
-      displayName: 'Secret scanning (Gitleaks)'
+- stage: DependencySecurity
+  displayName: "DS - Dependency vulnerability scan"
+  dependsOn: BuildAndTest
+  condition: succeeded()
+  jobs:
+    - job: PipAudit
+      displayName: "pip-audit scan"
+      steps:
+        - task: UsePythonVersion@0
+          displayName: "Use Python $(pythonVersion)"
+          inputs:
+            versionSpec: "$(pythonVersion)"
+            addToPath: true
+
+        - script: |
+            python -m pip install --upgrade pip
+            python -m pip install pip-audit
+          displayName: "Install pip-audit"
+
+        - script: |
+            pip-audit -r requirements.txt
+          displayName: "Run pip-audit"
 
 
 - stage: Deploy_Test
-  displayName: 'Deploy to Test environment'
-  dependsOn: SecurityTests
+  displayName: "Deploy to Test environment"
+  dependsOn:
+    - BuildAndTest
+    - SecretScanning
+    - DependencySecurity
   condition: succeeded()
   jobs:
-  - deployment: DeployToTest
-    displayName: 'Deploy calculator to Test (simulated)'
-    environment: 'Test'
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - download: current
-            artifact: drop
+    - deployment: DeployToTest
+      displayName: "Deploy calculator to Test (simulated + smoke test)"
+      environment: "Test"
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+              - download: current
+                artifact: drop
 
-          - task: UsePythonVersion@0
-            displayName: 'Use Python $(pythonVersion)'
-            inputs:
-              versionSpec: '$(pythonVersion)'
-              addToPath: true
+              - task: UsePythonVersion@0
+                displayName: "Use Python $(pythonVersion)"
+                inputs:
+                  versionSpec: "$(pythonVersion)"
+                  addToPath: true
 
-          - script: |
-              python -m pip install --upgrade pip
-              python -m pip install -r $(Pipeline.Workspace)/drop/requirements.txt
-            displayName: 'Install dependencies in deployment job'
+              - script: |
+                  python -m pip install --upgrade pip
+                  python -m pip install -r $(Pipeline.Workspace)/drop/requirements.txt
+                displayName: "Install dependencies from artifact"
 
-          - script: |
-              echo "Starting Flask app in background (Test deploy)..."
-              cd $(Pipeline.Workspace)/drop
-              python app.py &
-              APP_PID=$!
-              echo "App PID: $APP_PID"
-              sleep 5
+              - script: |
+                  set -euxo pipefail
+                  cd $(Pipeline.Workspace)/drop
 
-              echo "Hitting smoke-test endpoint..."
-              curl -f "http://127.0.0.1:8000/api/calculate?op=add&a=1&b=2"
+                  echo "Starting Flask app..."
+                  python app.py &
+                  APP_PID=$!
+                  sleep 5
 
-              echo "Stopping app..."
-              kill $APP_PID || true
-            displayName: 'Smoke test deployment on Test'
+                  echo "Smoke test..."
+                  curl -f "http://127.0.0.1:8000/api/calculate?op=add&a=1&b=2"
+
+                  echo "Stopping app..."
+                  kill $APP_PID || true
+                displayName: "Smoke test deployment on Test"
 
 
 - stage: PerformanceTests
-  displayName: 'Performance tests (JMeter)'
+  displayName: "Performance tests (JMeter)"
   dependsOn: Deploy_Test
   condition: succeeded()
   jobs:
-  - job: JMeter
-    displayName: 'Run JMeter load tests'
-    steps:
-    - download: current
-      artifact: drop
+    - job: JMeter
+      displayName: "Run JMeter load tests"
+      steps:
+        - download: current
+          artifact: drop
 
-    - task: UsePythonVersion@0
-      displayName: 'Use Python $(pythonVersion)'
-      inputs:
-        versionSpec: '$(pythonVersion)'
-        addToPath: true
+        - task: UsePythonVersion@0
+          displayName: "Use Python $(pythonVersion)"
+          inputs:
+            versionSpec: "$(pythonVersion)"
+            addToPath: true
 
-    - script: |
-        python -m pip install --upgrade pip
-        python -m pip install -r $(Pipeline.Workspace)/drop/requirements.txt
-      displayName: 'Install app dependencies (from artefact)'
+        - script: |
+            python -m pip install --upgrade pip
+            python -m pip install -r $(Pipeline.Workspace)/drop/requirements.txt
+          displayName: "Install app deps from artifact"
 
-    - script: |
-        echo "Downloading JMeter..."
-        JMETER_VERSION=5.6.3
-        wget -q https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz -O apache-jmeter.tgz
-        tar -xzf apache-jmeter.tgz
-      displayName: 'Download and extract JMeter'
+        - script: |
+            set -euxo pipefail
+            cd $(Pipeline.Workspace)/drop
 
-    - script: |
-        echo "Starting Flask app in background (artefact instance)..."
-        cd $(Pipeline.Workspace)/drop
-        python app.py &
-        APP_PID=$!
-        echo "App PID: $APP_PID"
-        sleep 5
+            echo "Downloading JMeter..."
+            JMETER_VERSION=5.6.3
+            wget -q https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-${JMETER_VERSION}.tgz -O apache-jmeter.tgz
+            tar -xzf apache-jmeter.tgz
 
-        echo "Running JMeter test plan..."
-        cd $(System.DefaultWorkingDirectory)
-        ./apache-jmeter-*/bin/jmeter \
-          -n \
-          -t $(Pipeline.Workspace)/drop/performance-tests/calculator_load_test.jmx \
-          -l jmeter-results.jtl \
-          -e -o jmeter-report
+            echo "Starting Flask app..."
+            python app.py &
+            APP_PID=$!
+            sleep 5
 
-        echo "Stopping app..."
-        kill $APP_PID || true
-      displayName: 'Run JMeter against artefact instance'
+            echo "Run JMeter plan..."
+            ./apache-jmeter-*/bin/jmeter \
+              -n \
+              -t performance-tests/calculator_load_test.jmx \
+              -l jmeter-results.jtl \
+              -e -o jmeter-report
 
-    - task: PublishBuildArtifacts@1
-      displayName: 'Publish JMeter HTML report'
-      inputs:
-        pathToPublish: '$(System.DefaultWorkingDirectory)/jmeter-report'
-        artifactName: 'jmeter-report'
-        publishLocation: 'Container'
+            echo "Stop Flask app..."
+            kill $APP_PID || true
+          displayName: "Run JMeter against local app"
 
-    - task: PublishBuildArtifacts@1
-      displayName: 'Publish JMeter raw results'
-      inputs:
-        pathToPublish: '$(System.DefaultWorkingDirectory)/jmeter-results.jtl'
-        artifactName: 'jmeter-results'
-        publishLocation: 'Container'
+        - task: PublishBuildArtifacts@1
+          displayName: "Publish JMeter HTML report"
+          inputs:
+            pathToPublish: "$(Pipeline.Workspace)/drop/jmeter-report"
+            artifactName: "jmeter-report"
+            publishLocation: "Container"
+
+        - task: PublishBuildArtifacts@1
+          displayName: "Publish JMeter raw results"
+          inputs:
+            pathToPublish: "$(Pipeline.Workspace)/drop/jmeter-results.jtl"
+            artifactName: "jmeter-results"
+            publishLocation: "Container"
 
 
 - stage: UATTests
-  displayName: 'UAT tests (Behave + Selenium)'
+  displayName: "UAT tests (Behave + Selenium)"
   dependsOn: PerformanceTests
   condition: succeeded()
   jobs:
-  - job: BehaveUAT
-    displayName: 'Run Behave UI tests (artefact instance)'
-    steps:
-    - download: current
-      artifact: drop
+    - job: BehaveUAT
+      displayName: "Run Behave UI tests"
+      steps:
+        - download: current
+          artifact: drop
 
-    - task: UsePythonVersion@0
-      displayName: 'Use Python $(pythonVersion)'
-      inputs:
-        versionSpec: '$(pythonVersion)'
-        addToPath: true
+        - task: UsePythonVersion@0
+          displayName: "Use Python $(pythonVersion)"
+          inputs:
+            versionSpec: "$(pythonVersion)"
+            addToPath: true
 
-    - script: |
-        python -m pip install --upgrade pip
-        python -m pip install -r $(Pipeline.Workspace)/drop/requirements.txt
-      displayName: 'Install UAT dependencies (from artefact)'
+        - script: |
+            python -m pip install --upgrade pip
+            python -m pip install -r $(Pipeline.Workspace)/drop/requirements.txt
+          displayName: "Install UAT dependencies from artifact"
 
-    - script: |
-        set +e
+        - script: |
+            set +e
+            cd $(Pipeline.Workspace)/drop
 
-        echo "Starting Flask app for UAT (artefact instance)..."
-        cd $(Pipeline.Workspace)/drop
-        python app.py &
-        APP_PID=$!
-        sleep 5
+            echo "Starting Flask app for UAT..."
+            python app.py &
+            APP_PID=$!
+            sleep 5
 
-        echo "Running Behave UAT tests..."
-        mkdir -p uat/screenshots
-        behave uat/features | tee uat/behave-output.txt
-        BEHAVE_EXIT=${PIPESTATUS[0]}
+            mkdir -p uat/screenshots
 
-        echo "Stopping Flask app..."
-        kill $APP_PID || true
+            echo "Running Behave..."
+            behave uat/features | tee uat/behave-output.txt
+            BEHAVE_EXIT=${PIPESTATUS[0]}
 
-        echo "Behave exit code: $BEHAVE_EXIT"
-        exit $BEHAVE_EXIT
-      displayName: 'Run Behave scenarios with evidence'
+            echo "Stopping Flask..."
+            kill $APP_PID || true
 
-    - task: PublishBuildArtifacts@1
-      displayName: 'Publish UAT evidence'
-      condition: succeededOrFailed()
-      inputs:
-        pathToPublish: '$(Pipeline.Workspace)/drop/uat'
-        artifactName: 'uat-evidence'
-        publishLocation: 'Container'
+            echo "Behave exit code: $BEHAVE_EXIT"
+            exit $BEHAVE_EXIT
+          displayName: "Run Behave scenarios with evidence"
+
+        - task: PublishBuildArtifacts@1
+          displayName: "Publish UAT evidence"
+          condition: succeededOrFailed()
+          inputs:
+            pathToPublish: "$(Pipeline.Workspace)/drop/uat"
+            artifactName: "uat-evidence"
+            publishLocation: "Container"
 
 
 - stage: Deploy_Prod
-  displayName: 'Deploy to Production'
+  displayName: "Deploy to Production"
   dependsOn: UATTests
   condition: succeeded()
   jobs:
-  - deployment: DeployToProd
-    displayName: 'Deploy calculator to Prod'
-    environment: 'Production'
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-          - download: current
-            artifact: drop
+    - deployment: DeployToProd
+      displayName: "Deploy calculator to Prod (simulated + verification)"
+      environment: "Prod"
+      strategy:
+        runOnce:
+          deploy:
+            steps:
+              - download: current
+                artifact: drop
 
-          - task: UsePythonVersion@0
-            displayName: 'Use Python $(pythonVersion)'
-            inputs:
-              versionSpec: '$(pythonVersion)'
-              addToPath: true
+              - task: UsePythonVersion@0
+                displayName: "Use Python $(pythonVersion)"
+                inputs:
+                  versionSpec: "$(pythonVersion)"
+                  addToPath: true
 
-          - script: |
-              python -m pip install --upgrade pip
-              python -m pip install -r $(Pipeline.Workspace)/drop/requirements.txt
-            displayName: 'Install production dependencies (from artefact)'
+              - script: |
+                  python -m pip install --upgrade pip
+                  python -m pip install -r $(Pipeline.Workspace)/drop/requirements.txt
+                displayName: "Install production dependencies"
 
-          - script: |
-              echo "Starting application in Production environment (artefact instance)..."
-              cd $(Pipeline.Workspace)/drop
-              python app.py &
-              APP_PID=$!
-              sleep 5
+              - script: |
+                  set -euxo pipefail
+                  cd $(Pipeline.Workspace)/drop
 
-              echo "Running production verification..."
-              curl -f "http://127.0.0.1:8000/api/calculate?op=add&a=2&b=3"
+                  echo "Starting app..."
+                  python app.py &
+                  APP_PID=$!
+                  sleep 5
 
-              echo "Stopping application..."
-              kill $APP_PID || true
-            displayName: 'Production verification'
+                  echo "Prod verification..."
+                  curl -f "http://127.0.0.1:8000/api/calculate?op=add&a=2&b=3"
+
+                  echo "Stopping app..."
+                  kill $APP_PID || true
+                displayName: "Production verification"
