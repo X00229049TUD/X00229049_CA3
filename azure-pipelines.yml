@@ -65,13 +65,14 @@ stages:
         reportDirectory: '$(System.DefaultWorkingDirectory)/htmlcov'
         failIfCoverageEmpty: true
 
-    # package app as artefact
     - task: CopyFiles@2
       displayName: 'Copy files to artefact staging'
       inputs:
         contents: |
           calculator/**
           templates/**
+          performance-tests/**
+          uat/**
           app.py
           main.py
           requirements.txt
@@ -83,6 +84,7 @@ stages:
         pathToPublish: '$(Build.ArtifactStagingDirectory)'
         artifactName: 'drop'
         publishLocation: 'Container'
+
 
 - stage: SecurityTests
   displayName: 'Security testing'
@@ -104,7 +106,7 @@ stages:
       displayName: 'Install security tools'
 
     - script: |
-        echo "Running dependency vulnerability scan..."
+        echo "Running dependency vulnerability scan (pip-audit)..."
         pip-audit
       displayName: 'Dependency vulnerability scan (pip-audit)'
 
@@ -118,11 +120,11 @@ stages:
           --verbose
       displayName: 'Secret scanning (Gitleaks)'
 
-# deploy to test
+
 - stage: Deploy_Test
   displayName: 'Deploy to Test environment'
-  dependsOn: BuildAndTest
-  condition: succeeded()   # only if build stage succeeded
+  dependsOn: SecurityTests
+  condition: succeeded()
   jobs:
   - deployment: DeployToTest
     displayName: 'Deploy calculator to Test (simulated)'
@@ -146,13 +148,11 @@ stages:
             displayName: 'Install dependencies in deployment job'
 
           - script: |
-              echo "Starting Flask app in background..."
+              echo "Starting Flask app in background (Test deploy)..."
               cd $(Pipeline.Workspace)/drop
               python app.py &
               APP_PID=$!
               echo "App PID: $APP_PID"
-
-              # Give the app a moment to start
               sleep 5
 
               echo "Hitting smoke-test endpoint..."
@@ -162,6 +162,7 @@ stages:
               kill $APP_PID || true
             displayName: 'Smoke test deployment on Test'
 
+
 - stage: PerformanceTests
   displayName: 'Performance tests (JMeter)'
   dependsOn: Deploy_Test
@@ -170,6 +171,9 @@ stages:
   - job: JMeter
     displayName: 'Run JMeter load tests'
     steps:
+    - download: current
+      artifact: drop
+
     - task: UsePythonVersion@0
       displayName: 'Use Python $(pythonVersion)'
       inputs:
@@ -178,8 +182,8 @@ stages:
 
     - script: |
         python -m pip install --upgrade pip
-        python -m pip install -r requirements.txt
-      displayName: 'Install app dependencies'
+        python -m pip install -r $(Pipeline.Workspace)/drop/requirements.txt
+      displayName: 'Install app dependencies (from artefact)'
 
     - script: |
         echo "Downloading JMeter..."
@@ -189,22 +193,24 @@ stages:
       displayName: 'Download and extract JMeter'
 
     - script: |
-        echo "Starting Flask app in background..."
+        echo "Starting Flask app in background (artefact instance)..."
+        cd $(Pipeline.Workspace)/drop
         python app.py &
         APP_PID=$!
         echo "App PID: $APP_PID"
         sleep 5
 
         echo "Running JMeter test plan..."
+        cd $(System.DefaultWorkingDirectory)
         ./apache-jmeter-*/bin/jmeter \
           -n \
-          -t performance-tests/calculator_load_test.jmx \
+          -t $(Pipeline.Workspace)/drop/performance-tests/calculator_load_test.jmx \
           -l jmeter-results.jtl \
           -e -o jmeter-report
 
         echo "Stopping app..."
         kill $APP_PID || true
-      displayName: 'Run JMeter against local app'
+      displayName: 'Run JMeter against artefact instance'
 
     - task: PublishBuildArtifacts@1
       displayName: 'Publish JMeter HTML report'
@@ -220,14 +226,18 @@ stages:
         artifactName: 'jmeter-results'
         publishLocation: 'Container'
 
+
 - stage: UATTests
   displayName: 'UAT tests (Behave + Selenium)'
   dependsOn: PerformanceTests
   condition: succeeded()
   jobs:
   - job: BehaveUAT
-    displayName: 'Run Behave UI tests'
+    displayName: 'Run Behave UI tests (artefact instance)'
     steps:
+    - download: current
+      artifact: drop
+
     - task: UsePythonVersion@0
       displayName: 'Use Python $(pythonVersion)'
       inputs:
@@ -236,20 +246,20 @@ stages:
 
     - script: |
         python -m pip install --upgrade pip
-        python -m pip install -r requirements.txt
-      displayName: 'Install UAT dependencies'
+        python -m pip install -r $(Pipeline.Workspace)/drop/requirements.txt
+      displayName: 'Install UAT dependencies (from artefact)'
 
     - script: |
         set +e
 
-        echo "Starting Flask app for UAT..."
+        echo "Starting Flask app for UAT (artefact instance)..."
+        cd $(Pipeline.Workspace)/drop
         python app.py &
         APP_PID=$!
         sleep 5
 
         echo "Running Behave UAT tests..."
         mkdir -p uat/screenshots
-
         behave uat/features | tee uat/behave-output.txt
         BEHAVE_EXIT=${PIPESTATUS[0]}
 
@@ -264,6 +274,47 @@ stages:
       displayName: 'Publish UAT evidence'
       condition: succeededOrFailed()
       inputs:
-        pathToPublish: 'uat'
+        pathToPublish: '$(Pipeline.Workspace)/drop/uat'
         artifactName: 'uat-evidence'
         publishLocation: 'Container'
+
+
+- stage: Deploy_Prod
+  displayName: 'Deploy to Production'
+  dependsOn: UATTests
+  condition: succeeded()
+  jobs:
+  - deployment: DeployToProd
+    displayName: 'Deploy calculator to Prod'
+    environment: 'Prod'   # Must exactly match your Azure DevOps Environment name
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: drop
+
+          - task: UsePythonVersion@0
+            displayName: 'Use Python $(pythonVersion)'
+            inputs:
+              versionSpec: '$(pythonVersion)'
+              addToPath: true
+
+          - script: |
+              python -m pip install --upgrade pip
+              python -m pip install -r $(Pipeline.Workspace)/drop/requirements.txt
+            displayName: 'Install production dependencies (from artefact)'
+
+          - script: |
+              echo "Starting application in Prod environment (artefact instance)..."
+              cd $(Pipeline.Workspace)/drop
+              python app.py &
+              APP_PID=$!
+              sleep 5
+
+              echo "Running production verification..."
+              curl -f "http://127.0.0.1:8000/api/calculate?op=add&a=2&b=3"
+
+              echo "Stopping application..."
+              kill $APP_PID || true
+            displayName: 'Production verification'
