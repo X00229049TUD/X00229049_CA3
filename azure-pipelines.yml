@@ -94,16 +94,29 @@ stages:
       displayName: "Gitleaks scan"
       steps:
         - script: |
-            curl -sSL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks_$(uname -s)_x64.tar.gz -o gitleaks.tar.gz
+            set -e
+            echo "Installing Gitleaks..."
+            GITLEAKS_VERSION=8.18.4
+
+            curl -sSL \
+              https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz \
+              -o gitleaks.tar.gz
+
             tar -xzf gitleaks.tar.gz
+            chmod +x gitleaks
             sudo mv gitleaks /usr/local/bin/gitleaks
+
             gitleaks version
-          displayName: "Install gitleaks"
+          displayName: 'Install Gitleaks'
 
         - script: |
-            # Scan working tree; fail on findings.
-            gitleaks detect --source . --no-git --verbose
-          displayName: "Run gitleaks (working tree)"
+            echo "Running Gitleaks scan..."
+            gitleaks detect \
+              --source . \
+              --no-git \
+              --redact \
+              --verbose
+          displayName: 'Run Gitleaks secret scan'
 
 
 - stage: DependencySecurity
