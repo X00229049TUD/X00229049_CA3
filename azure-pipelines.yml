@@ -185,3 +185,47 @@ stages:
         pathToPublish: '$(System.DefaultWorkingDirectory)/jmeter-results.jtl'
         artifactName: 'jmeter-results'
         publishLocation: 'Container'
+
+- stage: UATTests
+  displayName: 'UAT tests (Behave + Selenium)'
+  dependsOn: PerformanceTests
+  condition: succeeded()
+  jobs:
+  - job: BehaveUAT
+    displayName: 'Run Behave UI tests against Test deployment'
+    steps:
+    - task: UsePythonVersion@0
+      displayName: 'Use Python $(pythonVersion)'
+      inputs:
+        versionSpec: '$(pythonVersion)'
+        addToPath: true
+
+    - script: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt
+      displayName: 'Install dependencies (Behave + Selenium)'
+
+    - script: |
+        echo "Starting Flask app in background for UAT..."
+        python app.py &
+        APP_PID=$!
+        echo "App PID: $APP_PID"
+        sleep 5
+
+        echo "Running Behave tests..."
+        cd uat
+        behave -f junit -o reports
+
+        echo "Stopping app..."
+        kill $APP_PID || true
+      displayName: 'Run Behave scenarios'
+      condition: succeededOrFailed()
+
+    - task: PublishTestResults@2
+      displayName: 'Publish UAT test results (JUnit)'
+      condition: succeededOrFailed()
+      inputs:
+        testResultsFormat: 'JUnit'
+        testResultsFiles: 'uat/reports/*.xml'
+        failTaskOnFailedTests: true
+        testRunTitle: 'UAT (Behave + Selenium)'
