@@ -206,15 +206,22 @@ stages:
       displayName: 'Install dependencies (Behave + Selenium)'
 
     - script: |
+        set -euxo pipefail
+
         echo "Starting Flask app in background for UAT..."
         python app.py &
         APP_PID=$!
-        echo "App PID: $APP_PID"
         sleep 5
 
         echo "Running Behave tests..."
-        cd uat
-        behave -f junit -o reports/uat-results.xml
+        mkdir -p uat/reports
+
+        behave uat/features \
+          -f junit \
+          -o uat/reports/uat-results.xml
+
+        echo "List uat/reports after behave:"
+        ls -la uat/reports
 
         echo "Stopping app..."
         kill $APP_PID || true
@@ -226,6 +233,8 @@ stages:
       condition: succeededOrFailed()
       inputs:
         testResultsFormat: 'JUnit'
-        testResultsFiles: 'uat/reports/*.xml'
+        testResultsFiles: |
+          uat/reports/uat-results.xml
+          uat/reports/*.xml
         failTaskOnFailedTests: true
         testRunTitle: 'UAT (Behave + Selenium)'
