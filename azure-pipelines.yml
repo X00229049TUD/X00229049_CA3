@@ -286,7 +286,7 @@ stages:
   jobs:
   - deployment: DeployToProd
     displayName: 'Deploy calculator to Prod'
-    environment: 'Prod'   # Must exactly match your Azure DevOps Environment name
+    environment: 'Production'
     strategy:
       runOnce:
         deploy:
@@ -306,7 +306,7 @@ stages:
             displayName: 'Install production dependencies (from artefact)'
 
           - script: |
-              echo "Starting application in Prod environment (artefact instance)..."
+              echo "Starting application in Production environment (artefact instance)..."
               cd $(Pipeline.Workspace)/drop
               python app.py &
               APP_PID=$!
