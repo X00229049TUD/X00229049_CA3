@@ -4,3 +4,4 @@ pylint
 flask>=3.0.0
 behave>=1.2.6
 selenium>=4.23.0
+behave-junit-formatter>=0.1.6

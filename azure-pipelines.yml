@@ -216,8 +216,11 @@ stages:
         echo "Running Behave tests..."
         mkdir -p uat/reports
 
+        behave --version
+        behave --help | sed -n '1,120p'
+
         behave uat/features \
-          -f junit \
+          -f behave_junit_formatter:JUnitFormatter \
           -o uat/reports/uat-results.xml
 
         echo "List uat/reports after behave:"
