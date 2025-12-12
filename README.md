@@ -1,20 +1,19 @@
-# DevOps CA2 – Python Calculator (X00229049)
+# DevOps CA3 – Python Calculator (X00229049)
 
 ## Overview
 
-This repository contains a very small Python calculator application.
-
-The application currently supports **addition, subtraction, multiplication, and
-division**, exposed both as Python functions and as CLI commands.
+This repository extends the CA2 Python calculator into a complete CI/CD implementation using GitHub and Azure DevOps. The focus is on robust automated delivery across environments, including build automation, code quality checks, security controls, performance testing, and Selenium-based user acceptance testing (UAT).
 
 ## Technologies Used
 
-- **Language:** Python 3.11
-- **Testing:** `pytest`, `pytest-cov`
-- **Static Analysis:** `pylint`
-- **Azure DevOps Pipelines (YAML)** — CI execution
-- **Self-hosted Azure DevOps agent** — for pipeline execution
-- **Source Control:** Git & GitHub
+- Python 3.11
+- Flask (web UI + API endpoint)
+- **Testing**: pytest, pytest-cov
+- **Static analysis**: pylint
+- **CI/CD**: Azure DevOps YAML pipeline
+- **Performance testing**: Apache JMeter
+- **UAT**: Behave (BDD) + Selenium (headless Chrome)
+- **Source control**: Git + GitHub (private repo)
 
 ## Local Development Setup 
 
@@ -27,8 +26,8 @@ division**, exposed both as Python functions and as CLI commands.
 ### Setup Steps
 
 ```bash
-git clone https://github.com/X00229049TUD/X00229049_CA2.git
-cd X00229049_CA2
+git clone https://github.com/X00229049TUD/X00229049_CA3.git
+cd X00229049_CA3
 
 # (Optional) Create virtual environment
 python -m venv .venv
@@ -37,14 +36,9 @@ pip install -r requirements.txt
 ```
 ## Application Features
 
-The calculator currently supports two core operations:
-- add(a, b) – returns the sum of two numbers
-- subtract(a, b) – returns the result of a - b
-- multiply(a, b) - returns the result of a * b
-- divide(a, b) - returns the result of a / b
-- power(a, b) - returns the result of a ** b
-- maximum(a, b) - returns the max number of a or b
-- minumum(a, b) - returns the min number of a or b
+- Calculator operations: *add, sub, mul, div, pow, min, max*
+- Web UI for interactive calculation
+- API endpoint for automated checks (used in deployment smoke tests)
 
 Division by zero raises a ValueError.
 
@@ -65,67 +59,123 @@ requirements.txt
 ```
 
 ## CI Pipeline Implementation
-A full CI pipeline is defined in `azure-pipelines.yml`, implemented using Azure
-DevOps YAML pipelines. It performs:
+The Azure DevOps pipeline is implemented in `azure-pipelines.yml` and runs on `ubuntu-latest`.
 
-### Triggers
+### Triggers:
 
-- Runs on pushes to `main`
-- Runs on PRs targeting `main`
+- CI trigger on pushes to main
+- PR validation on PRs targeting main
 
-### Pipeline Stages
+### Stages (high-level):
 
-1. **Set up Python environment** using local python on `self-hosted` agent.
+1. BuildAndTest
+    - Install dependencies
+    - Run pylint
+    - Run pytest with coverage gate (>=80%)
+    - Publish code coverage
+    - Publish build artifact (drop)
+2. Deploy_Test
+    - Deploy (simulated) using artifact
+    - Smoke test the running app via curl
 
-1. **Install dependencies** -
-Installs packages from `requirements.txt`.
+3. PerformanceTests
+    - Run JMeter test plan against the app
+    - Publish JMeter HTML report + raw results as pipeline artifacts
 
-1. **Static Analysis** -
-Runs `pylint` on:
-    - `calculator/`
-    - `main.py`
-
-1. **Automated Unit Tests + Coverage** - 
-uses:
-```
-python3 -m pytest --cov=calculator --cov-report=xml:coverage.xml --cov-fail-under=80
-```
-
-This enforces a minimum coverage of 80%.
+4. UATTests
+    - Run Behave + Selenium headless UI tests
+    - Publish UAT evidence artifact (Behave output + screenshots on failure)
 
 ## Branch Policies and Protection
 Branch protection is configured on GitHub (not Azure Repos), following CA
 requirements.
 ### main branch protection rules
-- Require pull request before merging
-- Require at least 1 approving review
-- Require linear history
-- Block force pushes
-- Block branch deletion
-- Require passing Azure Pipeline checks
+- PR required before merging to main
+- At least 1 approving review
+- Required Azure Pipeline check must pass
+- Linear history enabled (no merge commits)
+- Force-push and branch deletion disabled
 ## Testing Strategy
-- Tests live in `tests/`
+### Unit tests:
+    Framework: pytest
+    Coverage: pytest-cov
+    Pipeline enforces minimum coverage threshold (>=80%)
 
-- Framework: pytest
+### Performance tests:
+    Tool: Apache JMeter
+    Output: HTML dashboard published as pipeline artifact (jmeter-report)
 
-- Coverage collected with pytest-cov
+### UAT tests:
+    Tooling: Behave + Selenium (headless Chrome)
+    Output: pipeline artifact uat-evidence contains:
+    uat/behave-output.txt
+    uat/screenshots/*.png (only created on failure)
 
-- Naming convention: `test_*.py`
+## Environment Setup and Configuration
+Two environments are used in Azure DevOps:
+- Test
+- Prod
 
-- Coverage goal: ≥80%, enforced by CI.
+Each environment is configured in Azure DevOps Environments and referenced by deployment jobs in YAML.
 
-Local test command:
+## Deployment Process
+
+### Test deployment:
+- Uses build artifact (drop) from BuildAndTest stage
+- Starts Flask app
+- Runs smoke test request to confirm the service responds correctly
+- Stops the app after verification
+
+### Prod deployment:
+- Requires manual approval gate before execution
+- After approval, deploys and verifies the application in the Prod environment
+- Approval gates are configured using Azure DevOps Environments, requiring a designated approver before the Prod deployment stage can execute.
+
+## Security and Performance Testing
+### Performance:
+- JMeter stage executes automatically after Test deploy
+- Reports are available under pipeline “Artifacts” (jmeter-report and jmeter-results)
+
+## UAT Testing with Selenium
+
+UAT is implemented using Behave + Selenium.
+- Headless Chrome is used in CI (--headless=new)
+- On step failure, a screenshot is captured automatically into uat/screenshots/
+
+To run locally:
 ```
-pytest --cov=calculator
+python app.py
+behave uat/features
 ```
+## Security Testing
+
+Security controls are integrated into the CI/CD process to identify common risks early:
+
+- Secret scanning is performed to detect hard-coded credentials or tokens
+- Dependency analysis ensures third-party Python packages do not introduce known vulnerabilities
+
+These checks help prevent insecure configurations from progressing through the pipeline.
+
+## Evidence and Artifacts
+
+The following evidence is available directly from Azure DevOps pipeline runs:
+- Build artifact: `drop`
+- Code coverage report (HTML + Cobertura summary)
+- JMeter performance report (`jmeter-report`)
+- UAT evidence (`uat-evidence`) including:
+  - Behave execution output
+  - Screenshots captured on test failure
+
 ## Troubleshooting Guide
-### Pipeline Error: “No hosted parallelism has been purchased or granted”
+- Pipeline succeeds but UAT results not visible in “Tests” tab:
+    - This is expected if JUnit publishing is not enabled. UAT results are available via logs and uat-evidence artifact.
 
-Occurs when Azure DevOps organization does not yet have free hosted parallelism.
+- Selenium fails on CI:
+    - Confirm headless flags are enabled and ChromeDriver is available on ubuntu-latest.
 
-### Coverage below 80%
+- JMeter report empty:
+    - Ensure the app is running before JMeter starts and the JMX target host/port matches the Flask server.
 
-Add more tests to improve code coverage.
 ## Running the App
 For example:
 ```bash
