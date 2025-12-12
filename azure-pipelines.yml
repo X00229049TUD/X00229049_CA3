@@ -115,7 +115,9 @@ stages:
               --source . \
               --no-git \
               --redact \
-              --verbose
+              --verbose \
+              -- config \
+              .gitleaks.toml
           displayName: 'Run Gitleaks secret scan'
 
 
