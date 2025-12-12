@@ -203,29 +203,33 @@ stages:
     - script: |
         python -m pip install --upgrade pip
         python -m pip install -r requirements.txt
-      displayName: 'Install dependencies (Behave + Selenium)'
+      displayName: 'Install UAT dependencies'
 
     - script: |
-        set -u
+        set +e
 
-        echo "Starting Flask app in background for UAT..."
+        echo "Starting Flask app for UAT..."
         python app.py &
         APP_PID=$!
-        echo "App PID: $APP_PID"
-
-        # Give the app time to start
         sleep 5
 
-        echo "Running Behave UAT scenarios..."
-        set +e
-        behave uat/features
-        BEHAVE_EXIT=$?
-        set -e
+        echo "Running Behave UAT tests..."
+        mkdir -p uat/screenshots
+
+        behave uat/features | tee uat/behave-output.txt
+        BEHAVE_EXIT=${PIPESTATUS[0]}
 
         echo "Stopping Flask app..."
         kill $APP_PID || true
 
         echo "Behave exit code: $BEHAVE_EXIT"
         exit $BEHAVE_EXIT
-      displayName: 'Run Behave scenarios (Selenium UAT)'
-      workingDirectory: '$(System.DefaultWorkingDirectory)'
+      displayName: 'Run Behave scenarios with evidence'
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish UAT evidence'
+      condition: succeededOrFailed()
+      inputs:
+        pathToPublish: 'uat'
+        artifactName: 'uat-evidence'
+        publishLocation: 'Container'
