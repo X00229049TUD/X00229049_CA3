@@ -84,6 +84,40 @@ stages:
         artifactName: 'drop'
         publishLocation: 'Container'
 
+- stage: SecurityTests
+  displayName: 'Security testing'
+  dependsOn: BuildAndTest
+  condition: succeeded()
+  jobs:
+  - job: Security
+    displayName: 'Run security scans'
+    steps:
+    - task: UsePythonVersion@0
+      displayName: 'Use Python $(pythonVersion)'
+      inputs:
+        versionSpec: '$(pythonVersion)'
+        addToPath: true
+
+    - script: |
+        python -m pip install --upgrade pip
+        python -m pip install pip-audit
+      displayName: 'Install security tools'
+
+    - script: |
+        echo "Running dependency vulnerability scan..."
+        pip-audit
+      displayName: 'Dependency vulnerability scan (pip-audit)'
+
+    - script: |
+        echo "Running secret scan with Gitleaks..."
+        docker run --rm \
+          -v "$(System.DefaultWorkingDirectory):/repo" \
+          zricethezav/gitleaks:latest detect \
+          --source=/repo \
+          --no-git \
+          --verbose
+      displayName: 'Secret scanning (Gitleaks)'
+
 # deploy to test
 - stage: Deploy_Test
   displayName: 'Deploy to Test environment'
