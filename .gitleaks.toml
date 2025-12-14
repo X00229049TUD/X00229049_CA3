@@ -1,0 +1,6 @@
+title = "CA3 Gitleaks config"
+
+[allowlist]
+paths = [
+  "README.md"
+]
