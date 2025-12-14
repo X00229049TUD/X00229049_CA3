@@ -32,6 +32,7 @@
           <option value="sub" {% if selected_op == 'sub' %}selected{% endif %}>Subtract (a - b)</option>
           <option value="mul" {% if selected_op == 'mul' %}selected{% endif %}>Multiply (a * b)</option>
           <option value="div" {% if selected_op == 'div' %}selected{% endif %}>Divide (a / b)</option>
+          <option value="mod" {% if selected_op == 'mod' %}selected{% endif %}>Modulo (a % b)</option>
           <option value="pow" {% if selected_op == 'pow' %}selected{% endif %}>Power (a ** b)</option>
           <option value="max" {% if selected_op == 'max' %}selected{% endif %}>Maximum</option>
           <option value="min" {% if selected_op == 'min' %}selected{% endif %}>Minimum</option>
@@ -50,7 +51,6 @@
     {% endif %}
 
     <p>
-      API example:
       <code>/api/calculate?op=add&amp;a=1&amp;b=2</code>
     </p>
   </body>

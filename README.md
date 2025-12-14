@@ -29,7 +29,7 @@ This repository extends the CA2 Python calculator into a complete CI/CD implemen
 git clone https://github.com/X00229049TUD/X00229049_CA3.git
 cd X00229049_CA3
 
-# (Optional) Create virtual environment
+# Create virtual environment
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -52,7 +52,9 @@ tests/
     test_multiply_divide.py
     test_power.py
     test_min_max.py
+    test_modulo.py
 main.py
+app.py
 azure-pipelines.yml
 README.md
 requirements.txt

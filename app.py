@@ -3,7 +3,7 @@
 from __future__ import annotations
 from typing import Callable, Dict
 from flask import Flask, render_template, request, jsonify
-from calculator import add, subtract, multiply, divide, power, minimum, maximum
+from calculator import add, subtract, multiply, divide, power, minimum, maximum, modulo
 
 
 app = Flask(__name__)
@@ -18,6 +18,7 @@ OPERATIONS: Dict[str, OperationFunc] = {
     "pow": power,
     "max": maximum,
     "min": minimum,
+    "mod": modulo,
 }
 
 

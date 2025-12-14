@@ -55,3 +55,14 @@ def minimum(a: float, b: float) -> float:
     Return the smaller of two values.
     """
     return min(a, b)
+
+def modulo(a: Number, b: Number) -> float:
+    """
+    Return a modulo b.
+
+    Raises:
+        ValueError: If b is zero.
+    """
+    if b == 0:
+        raise ValueError("Modulo by zero is not allowed.")
+    return float(a % b)
