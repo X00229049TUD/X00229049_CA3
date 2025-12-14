@@ -66,25 +66,16 @@ The Azure DevOps pipeline is implemented in `azure-pipelines.yml` and runs on `u
 - CI trigger on pushes to main
 - PR validation on PRs targeting main
 
-### Stages (high-level):
-
-1. BuildAndTest
-    - Install dependencies
-    - Run pylint
-    - Run pytest with coverage gate (>=80%)
-    - Publish code coverage
-    - Publish build artifact (drop)
-2. Deploy_Test
-    - Deploy (simulated) using artifact
-    - Smoke test the running app via curl
-
-3. PerformanceTests
-    - Run JMeter test plan against the app
-    - Publish JMeter HTML report + raw results as pipeline artifacts
-
-4. UATTests
-    - Run Behave + Selenium headless UI tests
-    - Publish UAT evidence artifact (Behave output + screenshots on failure)
+### Stages:
+At a high level, the pipeline enforces the following flow:
+- **Build, lint, unit test, and coverage enforcement**
+- **Security scanning (secrets and dependencies)**
+- **Deployment to Test with smoke testing**
+- **Performance testing**
+- **User Acceptance Testing (UAT)**
+- **Controlled deployment to Production**
+s
+Each stage must succeed before the next stage can execute, ensuring that only verified and secure code progresses through the pipeline.
 
 ## Branch Policies and Protection
 Branch protection is configured on GitHub (not Azure Repos), following CA
@@ -120,16 +111,21 @@ Each environment is configured in Azure DevOps Environments and referenced by de
 
 ## Deployment Process
 
-### Test deployment:
-- Uses build artifact (drop) from BuildAndTest stage
-- Starts Flask app
-- Runs smoke test request to confirm the service responds correctly
-- Stops the app after verification
+Production deployment is implemented as a separate pipeline stage and is not executed automatically.
 
-### Prod deployment:
-- Requires manual approval gate before execution
-- After approval, deploys and verifies the application in the Prod environment
-- Approval gates are configured using Azure DevOps Environments, requiring a designated approver before the Prod deployment stage can execute.
+Key characteristics:
+- Uses a dedicated Azure DevOps Environment (`Production`)
+- Protected by a manual approval gate
+- Only runs if:
+    - All previous stages succeed
+    - An authorized approver approves the deployment
+
+During the production stage:
+- The application is started using the production artifact
+- A verification request is executed against the API
+- The application is stopped after validation (simulated production - deployment)
+
+This demonstrates controlled release management and separation between Test and Production environments.
 
 ## Security and Performance Testing
 ### Performance:
@@ -147,24 +143,46 @@ To run locally:
 python app.py
 behave uat/features
 ```
+UAT tests are implemented using a black-box approach, interacting with the application through the web interface in the same way an end user would. This validates not only functionality, but also integration between the UI, backend logic, and deployment configuration.
+
 ## Security Testing
 
-Security controls are integrated into the CI/CD process to identify common risks early:
+### Secret Scanning (Gitleaks)
+- Tool: Gitleaks
+- Purpose: Detect hard-coded secrets, tokens, or credentials
+- Scope:
+    - Scans the repository working tree
+    - Uses a configuration file (`.gitleaks.toml`)
+- Output:
+    - JSON report published as a pipeline artifact (`sec-gitleaks`)
+- Pipeline behavior:
+    - The pipeline fails immediately if secrets are detected
+This ensures that sensitive information cannot be accidentally committed or deployed.
 
-- Secret scanning is performed to detect hard-coded credentials or tokens
-- Dependency analysis ensures third-party Python packages do not introduce known vulnerabilities
-
-These checks help prevent insecure configurations from progressing through the pipeline.
+### Dependency Vulnerability Scanning (pip-audit)
+- Tool: pip-audit
+- Purpose: Identify known vulnerabilities in third-party Python dependencies
+- Scope:
+    - Scans `requirements.txt` against vulnerability databases
+- Output:
+    - JSON report published as a pipeline artifact (`sec-pip-audit`)
+- Pipeline behavior:
+    - The pipeline fails if vulnerable dependencies are detected
 
 ## Evidence and Artifacts
+Artifacts are used to ensure traceability and immutability across pipeline stages.
+- The **build artifact** (`drop`) is created once and reused by:
+    - Test deployment
+    - Performance testing
+    - UAT testing
+    - Production deployment
+- This ensures that the exact same build is tested and deployed across all environments.
 
-The following evidence is available directly from Azure DevOps pipeline runs:
-- Build artifact: `drop`
-- Code coverage report (HTML + Cobertura summary)
-- JMeter performance report (`jmeter-report`)
-- UAT evidence (`uat-evidence`) including:
-  - Behave execution output
-  - Screenshots captured on test failure
+Additional artifacts provide assessment evidence:
+- `sec-gitleaks`: Secret scanning results
+- `sec-pip-audit`: Dependency vulnerability scan results
+- `jmeter-report`: Performance test dashboard
+- `uat-evidence`: UAT logs and screenshots
 
 ## Troubleshooting Guide
 - Pipeline succeeds but UAT results not visible in “Tests” tab:
